@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block content %}
+<form method=POST enctype=multipart/form-data action="{{ url_for('result') }}">
+    {{ form.hidden_tag() }}
+    <div style="display: flex;">
+        <div style="text-align: center; flex: 50%;">
+            <label for="base">
+                <h4>{{ form.base.label() }}</h4>
+            </label>
+            {{ form.base() }}
+            <!-- <input type="file" id="base" accept="image/*" onchange="readURL(this, '#base-img')" style="padding: 5px;" /> -->
+            <br />
+            <img id="base-img" src="#" alt="" width="70%" />
+        </div>
+        <div style="text-align: center; flex: 50%;">
+            <label for="style">
+                <h4>{{ form.style.label() }}</h4>
+            </label>
+            {{ form.style() }}
+            <!-- <input type="file" id="style" accept="image/*" onchange="readURL(this,'#style-img')" style="padding: 5px;" /> -->
+            <br />
+            <img id="style-img" src="#" alt="" width="70%" />
+        </div>
+    </div>
+    <div style="text-align: center;">
+        {{ form.submit() }}
+    </div>
+</form>
+{% endblock %}
+
+{% block footer %}
+<script>
+    function readURL(input, id) {
+        if (input.files && input.files[0]) {
+            var reader = new FileReader();
+
+            reader.onload = function (e) {
+                $(id).attr("src", e.target.result);
+            };
+
+            reader.readAsDataURL(input.files[0]);
+        }
+    }
+</script>
+{% endblock %}
