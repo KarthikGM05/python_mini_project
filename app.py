@@ -1,26 +1,28 @@
-from flask import Flask, request, render_template, session, redirect, url_for, send_from_directory
-from flask_wtf import FlaskForm
-from wtforms import Form, FileField, validators, SubmitField
-import tensorflow as tf
+import glob
+import os
+import time
+
+import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image as pil
-import time
-import imageio
-import glob
+import tensorflow as tf
+from flask import (Flask, redirect, render_template, request,
+                   send_from_directory, session, url_for)
+from flask_wtf import FlaskForm
 from werkzeug.utils import secure_filename
-import os
+from wtforms import FileField, Form, SubmitField, validators
 
 app = Flask(__name__)
 app.config.from_object(os.environ['APP_SETTINGS'])
 app.config['UPLOAD_FOLDER'] = '.'
 style_targets = {}
-base_targets = {}
+content_targets = {}
 
 
 class ImageForm(FlaskForm):
-    base = FileField("Base Image", [validators.DataRequired()], render_kw={
-                     'accept': 'image/*', 'onchange': 'readURL(this, "#base-img")', 'style': 'padding: 5px;'})
+    content = FileField("Content Image", [validators.DataRequired()], render_kw={
+                     'accept': 'image/*', 'onchange': 'readURL(this, "#content-img")', 'style': 'padding: 5px;'})
     style = FileField("Style Image", [validators.DataRequired()], render_kw={
                       'accept': 'image/*', 'onchange': 'readURL(this, "#style-img")', 'style': 'padding: 5px;'})
     submit = SubmitField("Mix")
@@ -66,12 +68,12 @@ def gram_matrix(t):
     return result/(num_loc)
 
 
-class StyleBaseModel(tf.keras.models.Model):
-    def __init__(self, style_layers, base_layers):
-        super(StyleBaseModel, self).__init__()
-        self.vgg = transfer_vgg(style_layers + base_layers)
+class StyleContentModel(tf.keras.models.Model):
+    def __init__(self, style_layers, content_layers):
+        super(StyleContentModel, self).__init__()
+        self.vgg = transfer_vgg(style_layers + content_layers)
         self.style_layers = style_layers
-        self.base_layers = base_layers
+        self.content_layers = content_layers
         self.num_style_layers = len(style_layers)
         self.vgg.trainable = False
 
@@ -81,21 +83,21 @@ class StyleBaseModel(tf.keras.models.Model):
         preprocessed_input = tf.keras.applications.vgg19.preprocess_input(
             inputs)
         outputs = self.vgg(preprocessed_input)
-        style_outputs, base_outputs = (outputs[:self.num_style_layers],
+        style_outputs, content_outputs = (outputs[:self.num_style_layers],
                                        outputs[self.num_style_layers:])
 
         style_outputs = [gram_matrix(style_output)
                          for style_output in style_outputs]
 
-        base_dict = {base_name: value
-                     for base_name, value
-                     in zip(self.base_layers, base_outputs)}
+        content_dict = {content_name: value
+                     for content_name, value
+                     in zip(self.content_layers, content_outputs)}
 
         style_dict = {style_name: value
                       for style_name, value
                       in zip(self.style_layers, style_outputs)}
 
-        return {'base': base_dict, 'style': style_dict}
+        return {'content': content_dict, 'style': style_dict}
 
 
 def clip_0_1(image):
@@ -106,17 +108,17 @@ def mse(y, y_hat):
     return tf.reduce_mean((y - y_hat) ** 2)
 
 
-def style_base_loss(outputs):
+def style_content_loss(outputs):
     style_outputs = outputs['style']
-    base_outputs = outputs['base']
+    content_outputs = outputs['content']
     style_loss = tf.add_n([mse(style_outputs[name], style_targets[name])
                            for name in style_outputs.keys()])
     style_loss *= style_weight / num_style_layers
 
-    base_loss = tf.add_n([mse(base_outputs[name], base_targets[name])
-                          for name in base_outputs.keys()])
-    base_loss *= base_weight / num_base_layers
-    loss = style_loss + base_loss
+    content_loss = tf.add_n([mse(content_outputs[name], content_targets[name])
+                          for name in content_outputs.keys()])
+    content_loss *= content_weight / num_content_layers
+    loss = style_loss + content_loss
     return loss
 
 
@@ -132,8 +134,8 @@ def tensor_to_image(tensor):
 @tf.function()
 def train_step(image):
     with tf.GradientTape() as tape:
-        outputs = style_base_model(image)
-        loss = style_base_loss(outputs)
+        outputs = style_content_model(image)
+        loss = style_content_loss(outputs)
         loss += total_variation_weight*tf.image.total_variation(image)
 
     grad = tape.gradient(loss, image)
@@ -143,18 +145,23 @@ def train_step(image):
 
 # Break out the VGG19 network.
 vgg19 = tf.keras.applications.VGG19(include_top=False, weights='imagenet')
-base_layers = ['block5_conv2']
+# Content layer where will pull our feature maps
+content_layers = ['block5_conv2']
+
+# Style layers we are interested in
 style_layers = ['block1_conv1',
                 'block2_conv1',
                 'block3_conv1',
                 'block4_conv1',
                 'block5_conv1']
-num_base_layers = len(base_layers)
+
+num_content_layers = len(content_layers)
 num_style_layers = len(style_layers)
-style_base_model = StyleBaseModel(style_layers, base_layers)
+
+style_content_model = StyleContentModel(style_layers, content_layers)
 optimiser = tf.optimizers.Adam(learning_rate=0.02)
 style_weight = 1e-2
-base_weight = 1e3
+content_weight = 1e3
 total_variation_weight = 30
 
 
@@ -166,19 +173,19 @@ def index():
 
 @app.route("/result", methods=['POST'])
 def result():
-    b = request.files['base']
+    b = request.files['content']
     b.save(b.filename)
     s = request.files['style']
     s.save(s.filename)
-    base = load_img(b.filename)
+    content = load_img(b.filename)
     style = load_img(s.filename)
     global style_targets
-    global base_targets
-    style_targets = style_base_model(style)['style']
-    base_targets = style_base_model(base)['base']
-    image = tf.Variable(base)
+    global content_targets
+    style_targets = style_content_model(style)['style']
+    content_targets = style_content_model(content)['content']
+    image = tf.Variable(content)
     epochs = 20
-    steps_per_epoch = 10
+    steps_per_epoch = 15
     images = []
     step = 0
     for n in range(epochs):
@@ -193,7 +200,7 @@ def result():
         img.save(f"image-{i}.jpeg")
     anim_file = 'res.gif'
     with imageio.get_writer(anim_file, mode='I') as writer:
-        filenames = glob.glob('image*.jpeg')
+        filenames = [f'image-{i}.jpeg' for i in range(epochs * steps_per_epoch)]
         filenames = sorted(filenames)
         last = -1
         for i, filename in enumerate(filenames):
@@ -212,3 +219,6 @@ def result():
 @app.route('/getImage')
 def getImage():
     return send_from_directory(app.config['UPLOAD_FOLDER'], 'res.gif')
+
+if __name__ == 'main':
+    app.run()

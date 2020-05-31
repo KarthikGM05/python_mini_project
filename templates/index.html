@@ -5,13 +5,13 @@
     {{ form.hidden_tag() }}
     <div style="display: flex;">
         <div style="text-align: center; flex: 50%;">
-            <label for="base">
-                <h4>{{ form.base.label() }}</h4>
+            <label for="content">
+                <h4>{{ form.content.label() }}</h4>
             </label>
-            {{ form.base() }}
-            <!-- <input type="file" id="base" accept="image/*" onchange="readURL(this, '#base-img')" style="padding: 5px;" /> -->
+            {{ form.content() }}
+            <!-- <input type="file" id="content" accept="image/*" onchange="readURL(this, '#content-img')" style="padding: 5px;" /> -->
             <br />
-            <img id="base-img" src="#" alt="" width="70%" />
+            <img id="content-img" src="#" alt="" width="70%" />
         </div>
         <div style="text-align: center; flex: 50%;">
             <label for="style">
