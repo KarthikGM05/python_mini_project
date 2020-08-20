@@ -1,4 +1,4 @@
-# Image Mixer using Neural Style Transfer - Tensorflow
+# ImageXer using Neural Style Transfer - Tensorflow
 
 This is a simple Flask app takes two images as input, a base image and a style image as input. In the backend, a model is trained to generate a series of mixed images, which are later combined into a single gif image.
 
